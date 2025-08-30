@@ -165,9 +165,9 @@ for assembly in "$ASSEMBLIES_DIR"/*.{fasta,fa,fna}; do
     fi
 
     # Extract sequence using samtools
-    output_fasta="$OUTPUT_DIR/${DISPLAY_NAME}_${GENE_NAME}.fasta"
+    output_fasta="$OUTPUT_DIR/${TAXON}_${GENE_NAME}.fasta"
     samtools faidx "$assembly" "${sseqid}:${coord_start}-${coord_end}" 2>/dev/null | \
-    sed "s/>.*/>${DISPLAY_NAME}_${GENE_NAME}/" > "$output_fasta"
+    sed "s/>.*/>${TAXON}_${GENE_NAME}/" > "$output_fasta"
 
     if [ $? -ne 0 ] || [ ! -s "$output_fasta" ]; then
         echo "  ❌ Failed to extract sequence"
