@@ -1,4 +1,4 @@
-# Phylogenetic Gene Extraction Pipeline
+# BLAST Pipeline
 
 A comprehensive pipeline for downloading genome assemblies, reference gene sequences, and extracting target genes for phylogenetic analysis. Specifically designed for circadian rhythm genes but can be adapted for any gene set.
 
@@ -11,10 +11,6 @@ A comprehensive pipeline for downloading genome assemblies, reference gene seque
 - **Comprehensive Logging**: Tracks all operations with detailed logs
 - **Resume Capability**: Skips already processed files
 
-## 🎯 Target Genes
-
-Default circadian rhythm genes:
-- CLOCK, ARNTL, PER1, PER2, CRY1, CRY2, NR1D1, RORA
 
 ## 📋 Prerequisites
 
@@ -265,7 +261,7 @@ graph TD
 
 ## 📄 License
 
-This pipeline is provided as-is for research purposes. Please cite NCBI and the relevant databases when using downloaded data.
+This pipeline is provided as-is for research purposes. Please cite NCBI and the relevant databases, and tools used in this when using.
 
 ## 🤝 Contributing
 
