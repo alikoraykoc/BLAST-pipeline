@@ -1,0 +1,34 @@
+# Python cache & env
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.env/
+.venv/
+venv/
+ENV/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+.DS_Store
+
+# Results and test data (project-specific)
+results/
+references/
+test_results/
+test_references/
+test_assemblies/
+single_test.tsv
+test_data/
+test_references/
+test_results/
+test_assemblies/
+
+# IDE / editor configs
+.vscode/
+.idea/
+
+# OS files
+Thumbs.db
