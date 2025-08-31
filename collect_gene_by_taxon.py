@@ -105,23 +105,73 @@ class TaxonomicGeneCollector:
             print(f"📊 {key:12} - {info['description']} (TaxID: {info['taxid']})")
         print()
 
-    def search_gene_in_taxon(self, gene_name, taxon_group, max_sequences=100):
+    def parse_taxon_input(self, taxon_input):
+        """Parse and validate taxonomic input - handles groups, TaxIDs, and scientific names"""
+        valid_taxons = []
+        
+        for taxon in taxon_input:
+            taxon = taxon.strip()
+            
+            # Check if it's a predefined group
+            if taxon in TAXONOMIC_GROUPS:
+                valid_taxons.append({
+                    'type': 'group',
+                    'input': taxon,
+                    'taxid': TAXONOMIC_GROUPS[taxon]['taxid'],
+                    'name': TAXONOMIC_GROUPS[taxon]['name'],
+                    'description': TAXONOMIC_GROUPS[taxon]['description']
+                })
+            
+            # Check if it's a numeric TaxID
+            elif taxon.isdigit():
+                valid_taxons.append({
+                    'type': 'taxid',
+                    'input': taxon,
+                    'taxid': taxon,
+                    'name': f"TaxID_{taxon}",
+                    'description': f"Taxonomic ID {taxon}"
+                })
+            
+            # Assume it's a scientific name
+            elif any(char.isalpha() for char in taxon):
+                # For scientific names, we'll use them directly in search
+                valid_taxons.append({
+                    'type': 'name',
+                    'input': taxon,
+                    'taxid': None,
+                    'name': taxon.replace(' ', '_'),
+                    'description': f"Scientific name: {taxon}"
+                })
+            
+            else:
+                self.log(f"⚠️ Invalid taxonomic input: {taxon}")
+                continue
+        
+        return valid_taxons
+
+    def search_gene_in_taxon(self, gene_name, taxon_info, max_sequences=100):
         """Search for a gene within a taxonomic group"""
+        
+        taxon_type = taxon_info['type']
+        taxon_input = taxon_info['input']
+        
+        self.log(f"🔍 Searching '{gene_name}' in {taxon_info['description']}")
 
-        if taxon_group not in TAXONOMIC_GROUPS:
-            raise ValueError(f"Unknown taxonomic group: {taxon_group}")
-
-        taxon_info = TAXONOMIC_GROUPS[taxon_group]
-        taxid = taxon_info["taxid"]
-
-        self.log(f"🔍 Searching '{gene_name}' in {taxon_info['description']} (TaxID: {taxid})")
-
-        # Construct search query
-        search_queries = [
-            f"{gene_name}[Gene Name] AND txid{taxid}[Organism:exp]",
-            f"{gene_name}[All Fields] AND txid{taxid}[Organism:exp] AND (mRNA[Title] OR CDS[Title] OR gene[Title])",
-            f"{gene_name}[Title] AND txid{taxid}[Organism:exp]"
-        ]
+        # Construct search queries based on taxon type
+        if taxon_type == 'group' or taxon_type == 'taxid':
+            taxid = taxon_info['taxid']
+            search_queries = [
+                f"{gene_name}[Gene Name] AND txid{taxid}[Organism:exp]",
+                f"{gene_name}[All Fields] AND txid{taxid}[Organism:exp] AND (mRNA[Title] OR CDS[Title] OR gene[Title])",
+                f"{gene_name}[Title] AND txid{taxid}[Organism:exp]"
+            ]
+        else:  # scientific name
+            scientific_name = taxon_input
+            search_queries = [
+                f"{gene_name}[Gene Name] AND {scientific_name}[Organism]",
+                f"{gene_name}[All Fields] AND {scientific_name}[Organism] AND (mRNA[Title] OR CDS[Title] OR gene[Title])",
+                f"{gene_name}[Title] AND {scientific_name}[Organism]"
+            ]
 
         all_results = []
 
@@ -243,10 +293,12 @@ class TaxonomicGeneCollector:
         self.log(f"✅ Filtered to {len(filtered)} high-quality sequences")
         return filtered
 
-    def download_sequences(self, sequence_info, gene_name, taxon_group, max_per_species=3):
+    def download_sequences(self, sequence_info, gene_name, taxon_info, max_per_species=3):
         """Download the actual sequences"""
         if not sequence_info:
             return 0
+
+        taxon_name = taxon_info['name']
 
         # Group by organism to limit per species
         by_organism = defaultdict(list)
@@ -265,7 +317,7 @@ class TaxonomicGeneCollector:
         # Create output file
         output_file = os.path.join(
             self.output_dir,
-            f"{gene_name}_{taxon_group}_references.fasta"
+            f"{gene_name}_{taxon_name}_references.fasta"
         )
 
         downloaded = 0
@@ -312,52 +364,59 @@ class TaxonomicGeneCollector:
 
         return downloaded
 
-    def collect_gene_references(self, gene_name, taxon_groups, max_sequences=100,
+    def collect_gene_references(self, gene_name, taxon_input, max_sequences=100,
                                 min_length=100, max_length=50000, max_per_species=3):
-        """Main function to collect gene references from taxonomic groups"""
+        """Main function to collect gene references from taxonomic input"""
 
-        self.log(f"🧬 Collecting '{gene_name}' references from taxonomic groups: {taxon_groups}")
+        self.log(f"🧬 Collecting '{gene_name}' references from taxonomic input: {taxon_input}")
+
+        # Parse and validate taxonomic input
+        valid_taxons = self.parse_taxon_input(taxon_input)
+        
+        if not valid_taxons:
+            self.log("❌ No valid taxonomic groups provided")
+            return 0
 
         total_downloaded = 0
 
-        for taxon_group in taxon_groups:
-            self.log(f"\n🦠 Processing taxonomic group: {taxon_group}")
+        for taxon_info in valid_taxons:
+            self.log(f"\n🦠 Processing: {taxon_info['description']}")
 
             try:
                 # Search for sequences
-                seq_ids = self.search_gene_in_taxon(gene_name, taxon_group, max_sequences)
+                seq_ids = self.search_gene_in_taxon(gene_name, taxon_info, max_sequences)
 
                 if not seq_ids:
-                    self.log(f"❌ No sequences found for {gene_name} in {taxon_group}")
+                    self.log(f"❌ No sequences found for {gene_name} in {taxon_info['input']}")
                     continue
 
                 # Get sequence information
                 seq_info = self.get_sequence_info(seq_ids)
 
                 if not seq_info:
-                    self.log(f"❌ Could not retrieve sequence info for {taxon_group}")
+                    self.log(f"❌ Could not retrieve sequence info for {taxon_info['input']}")
                     continue
 
                 # Filter sequences
                 filtered_info = self.filter_sequences(seq_info, min_length, max_length)
 
                 if not filtered_info:
-                    self.log(f"❌ No sequences passed quality filter for {taxon_group}")
+                    self.log(f"❌ No sequences passed quality filter for {taxon_info['input']}")
                     continue
 
                 # Download sequences
                 downloaded = self.download_sequences(
-                    filtered_info, gene_name, taxon_group, max_per_species
+                    filtered_info, gene_name, taxon_info, max_per_species
                 )
 
                 total_downloaded += downloaded
 
                 # Summary for this taxon
                 organisms = set(seq["organism"] for seq in filtered_info)
-                self.log(f"📊 {taxon_group}: {downloaded} sequences from {len(organisms)} organisms")
+                self.log(f"📊 {taxon_info['input']}: {downloaded} sequences from {len(organisms)} organisms")
 
             except Exception as e:
-                self.log(f"❌ Error processing {taxon_group}: {e}")
+                self.log(f"❌ Error processing {taxon_info['input']}: {e}")
                 continue
 
         self.log(f"\n🎉 Collection complete!")
@@ -372,7 +431,7 @@ def main():
     parser.add_argument("--gene", required=True, help="Gene name to search for")
     parser.add_argument("--email", required=True, help="Email for NCBI API")
     parser.add_argument("--taxa", nargs="+", help="Taxonomic groups to search",
-                        choices=list(TAXONOMIC_GROUPS.keys()))
+                        metavar="GROUP")
     parser.add_argument("--output", default="gene_references", help="Output directory")
     parser.add_argument("--max_sequences", type=int, default=100,
                         help="Maximum sequences to search per taxon")
@@ -398,25 +457,10 @@ def main():
         print("💡 Use --list_taxa to see available groups")
         return
 
-    # Validate taxonomic groups
-    invalid_taxa = []
-    for t in args.taxa:
-        if not (t in TAXONOMIC_GROUPS or t.isdigit() or any(char.isalpha() for char in t)):
-            invalid_taxa.append(t)
-
-    if invalid_taxa:
-        print(f"❌ Invalid taxonomic input: {invalid_taxa}")
-        print("💡 Use:")
-        print("  - Predefined groups (--list_taxa to see options)")
-        print("  - Numeric TaxIDs (e.g., 6656 for Arthropoda)")
-        print("  - Scientific names (e.g., 'Orthoptera')")
-        collector.list_taxonomic_groups()
-        return
-
-    # Run collection
+    # Run collection - DÜZELTME: taxon_input parametresi kullanılıyor
     total = collector.collect_gene_references(
         gene_name=args.gene,
-        taxon_input=args.taxa,
+        taxon_input=args.taxa,  # ✅ Doğru parametre adı
         max_sequences=args.max_sequences,
         min_length=args.min_length,
         max_length=args.max_length,
