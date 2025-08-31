@@ -341,8 +341,4 @@ This pipeline is provided for research purposes. Please respect NCBI usage polic
 
 ## Contributing
 
-Report issues and suggestions through the project repository. Contributions welcome for:
-- Additional taxonomic groups
-- New gene extraction methods
-- Performance optimizations
-- Documentation improvements
+Report issues and suggestions through the project repository. Contributions are welcome!
