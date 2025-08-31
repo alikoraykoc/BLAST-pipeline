@@ -1,268 +1,348 @@
 # BLAST Pipeline
 
-A comprehensive pipeline for downloading genome assemblies, reference gene sequences, and extracting target genes for phylogenetic analysis. Specifically designed for circadian rhythm genes but can be adapted for any gene set.
+A comprehensive bioinformatics pipeline for automated gene extraction from genome assemblies using taxonomically-filtered reference sequences or custom accession lists.
 
-## 🧬 Features
+## Overview
 
-- **Automated Assembly Download**: Downloads genome assemblies from NCBI
-- **Reference Gene Collection**: Gathers high-quality reference sequences
-- **BLAST-based Gene Extraction**: Extracts target genes from assemblies
-- **Quality Control**: Filters results based on identity and coverage
-- **Comprehensive Logging**: Tracks all operations with detailed logs
-- **Resume Capability**: Skips already processed files
+This pipeline automates the process of:
+1. **Reference Collection**: Gathering high-quality gene references from taxonomic groups or accession lists
+2. **Assembly Download**: Retrieving genome assemblies from NCBI
+3. **Gene Extraction**: BLAST-based extraction of target genes from assemblies
+4. **Organism Annotation**: Automatic species identification and metadata enrichment
 
+## Features
 
-## 📋 Prerequisites
+- **Flexible Reference Sources**: Use taxonomic groups, custom accession lists, or file paths
+- **Taxonomic Filtering**: Collect references from specific clades (mammals, insects, etc.)
+- **Custom Accession Support**: Use manually curated reference sequences
+- **Automatic Assembly Download**: NCBI datasets integration for genome retrieval
+- **Quality Control**: Identity and coverage thresholds for reliable extractions
+- **Organism Annotation**: Automatic species name lookup and file labeling
+- **Comprehensive Logging**: Detailed logs for troubleshooting and analysis
+- **Resume Capability**: Skip previously processed files
 
-### System Requirements
+## Installation
+
+### Prerequisites
+
+**System Dependencies:**
 ```bash
 # BLAST+ tools
 sudo apt-get install ncbi-blast+
 
-# Samtools
+# Samtools for sequence extraction
 sudo apt-get install samtools
 
-# Seqtk
+# Seqtk for sequence manipulation
 sudo apt-get install seqtk
 
-# bc (for calculations)
+# Calculator for quality checks
 sudo apt-get install bc
+
+# NCBI datasets CLI
+conda install -c conda-forge ncbi-datasets-cli
 ```
 
-### Python Dependencies
-```bash
-pip install -r requirements.txt
-```
-
-## 🚀 Quick Start
-
-### 1. Setup
-```bash
-# Clone or download the pipeline files
-chmod +x *.sh
-```
-
-### 2. Prepare Species List
-Create `species_list.tsv`:
-```tsv
-Homo	sapiens	human
-Mus	musculus	mouse
-Rattus	norvegicus	rat
-Drosophila	melanogaster	fruit_fly
-```
-
-### 3. Run Complete Pipeline
-```bash
-./master_pipeline.sh --species species_list.tsv --email your@email.com
-```
-
-## 📁 File Structure
-
-```
-phylogenetic-pipeline/
-├── get_gene_refs.py         # Download reference genes
-├── download_assemblies.py   # Download genome assemblies  
-├── extract_genes.sh         # Extract genes from assemblies
-├── master_pipeline.sh       # Master pipeline script
-├── requirements.txt         # Python dependencies
-├── species_list.tsv         # Your species list
-├── assemblies/              # Downloaded assemblies
-├── references/              # Reference gene sequences
-│   └── combined/            # Combined reference files
-├── results/                 # Extracted gene sequences
-│   ├── CLOCK/
-│   ├── ARNTL/
-│   └── ...
-└── logs/                    # All log files
-```
-
-## 🔧 Individual Scripts Usage
-
-### Download Genome Assemblies
-```bash
-python3 download_assemblies.py \
-    --species species_list.tsv \
-    --output ./assemblies \
-    --email your@email.com \
-    --assembly_level "Complete Genome" \
-    --max_size 1000
-```
-
-### Download Reference Genes
-```bash
-python3 get_gene_refs.py \
-    --species species_list.tsv \
-    --output ./references \
-    --email your@email.com \
-    --min_length 100
-```
-
-### Extract Genes from Assemblies
-```bash
-./extract_genes.sh \
-    references/combined/CLOCK_all_refs.fasta \
-    ./assemblies \
-    ./results/CLOCK \
-    CLOCK
-```
-
-## ⚙️ Advanced Options
-
-### Master Pipeline Options
-```bash
-./master_pipeline.sh \
-    --species my_species.tsv \
-    --email user@example.com \
-    --skip-assemblies \          # Skip assembly download
-    --skip-references \          # Skip reference download  
-    --extract-only               # Only run extraction
-```
-
-### Assembly Download Options
-```bash
-python3 download_assemblies.py \
-    --species species_list.tsv \
-    --output ./assemblies \
-    --email your@email.com \
-    --assembly_level "Chromosome" \    # Assembly quality filter
-    --max_size 500 \                   # Max size in MB
-    --dry_run                          # Preview without downloading
-```
-
-### Reference Download Options
-```bash
-python3 get_gene_refs.py \
-    --species species_list.tsv \
-    --output ./references \
-    --email your@email.com \
-    --min_length 200 \                 # Minimum sequence length
-    --dry_run                          # Preview without downloading
-```
-
-## 📊 Output Files
-
-### Assembly Downloads
-- `assemblies/Species_tag_accession.fasta` - Individual assemblies
-- `assemblies/download_log.tsv` - Download log
-- `assemblies/failed_downloads.tsv` - Failed downloads
-
-### Reference Genes  
-- `references/Species_GENE_accession_tag.fasta` - Individual references
-- `references/combined/GENE_all_refs.fasta` - Combined references per gene
-- `references/download_log.tsv` - Download log
-
-### Extracted Genes
-- `results/GENE/Taxon_GENE.fasta` - Individual extractions
-- `results/GENE/all_GENE_extracted.fasta` - Combined results per gene
-- `results/GENE/extraction_log.txt` - Extraction log
-
-### Summary Reports
-- `logs/pipeline_summary.txt` - Overall pipeline summary
-- `logs/pipeline.log` - Master pipeline log
-
-## 🔍 Quality Control
-
-The pipeline includes several QC steps:
-
-### Assembly Download
-- Prioritizes RefSeq over GenBank
-- Filters by assembly level (Complete Genome > Chromosome > Scaffold)
-- Size limits to avoid huge files
-- N50 quality scoring
-
-### Gene Extraction  
-- Minimum 70% identity threshold
-- Minimum 70% query coverage
-- Sequence length validation
-- Automatic reverse complement handling
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-**BLAST tools not found**
-```bash
-sudo apt-get install ncbi-blast+
-# or for conda
-conda install -c bioconda blast
-```
-
-**Python import errors**
+**Python Dependencies:**
 ```bash
 pip install biopython requests
 ```
 
-**No sequences extracted**
-- Check reference quality
-- Lower identity/coverage thresholds in extract_genes.sh
-- Verify assembly quality
+### Setup
 
-**NCBI API errors**
-- Ensure valid email address
-- Check internet connection
-- Reduce request frequency (add delays)
-
-### Log Files
-Always check relevant log files:
-- `logs/assembly_download.log`
-- `logs/reference_download.log` 
-- `logs/GENE_extraction.log`
-- `logs/pipeline_summary.txt`
-
-## 🎛️ Customization
-
-### Adding New Genes
-Edit `get_gene_refs.py`:
-```python
-GENES = ["CLOCK", "ARNTL", "PER1", "PER2", "YOUR_GENE"]
-```
-
-Edit `master_pipeline.sh`:
+1. Clone or download the pipeline files
+2. Make shell scripts executable:
 ```bash
-GENES=("CLOCK" "ARNTL" "PER1" "PER2" "YOUR_GENE")
+chmod +x master_pipeline.sh extract_genes.sh
 ```
-
-### Adjusting Quality Thresholds
-Edit `extract_genes.sh`:
+3. Test dependencies:
 ```bash
-identity_ok=$(echo "$pident >= 60" | bc -l)    # Lower from 70
-coverage_ok=$(echo "$qcovs >= 50" | bc -l)     # Lower from 70
+./master_pipeline.sh --help
 ```
 
-### Species File Format
-Support for additional columns:
-```tsv
-Genus	species	tag	additional_info
-Homo	sapiens	human	model_organism
+## Usage
+
+### Quick Start
+
+```bash
+# Create species list (if using assemblies)
+cat > species_list.tsv << 'EOF'
+Homo	sapiens	human
+Mus	musculus	mouse
+EOF
+
+# Run full pipeline with taxonomic gene collection
+./master_pipeline.sh \
+    --email your@email.com \
+    --input species_list.tsv \
+    --genes 18S \
+    --taxa mammals
+
+# Or use custom accession references
+./master_pipeline.sh \
+    --email your@email.com \
+    --input assemblies.txt \
+    --genes accession_refs.txt
 ```
 
-## 📞 Support
+### Input File Formats
 
-For issues or questions:
-1. Check the log files in `logs/` directory
-2. Verify all dependencies are installed
-3. Ensure NCBI email is valid and working
-4. Check input file formats
-
-## 🏗️ Pipeline Architecture
-
-```mermaid
-graph TD
-    A[Species List] --> B[Download Assemblies]
-    A --> C[Download References]
-    B --> D[Assembly Database]
-    C --> E[Combined References]
-    D --> F[BLAST Search]
-    E --> F
-    F --> G[Quality Filter]
-    G --> H[Extract Sequences]
-    H --> I[Final Results]
+**Species List (TSV):**
+```
+Genus	species	tag
+Homo	sapiens	human
+Mus	musculus	mouse
 ```
 
-## 📄 License
+**Assembly Accessions:**
+```
+GCA_034510155.1
+GCF_000001405.40
+GCA_050613505.1
+```
 
-This pipeline is provided as-is for research purposes. Please cite NCBI and the relevant databases, and tools used in this when using.
+**Reference Accessions:**
+```
+MT536114.1
+KM853220.1
+AF423791.1
+```
 
-## 🤝 Contributing
+### Advanced Options
 
-Feel free to submit issues, feature requests, or improvements to make this pipeline more robust and user-friendly.
+**Taxonomic Gene Collection:**
+```bash
+# Use predefined taxonomic groups
+./master_pipeline.sh \
+    --email your@email.com \
+    --genes CLOCK,PER1 \
+    --taxa mammals,birds
+
+# Use TaxIDs directly
+./master_pipeline.sh \
+    --email your@email.com \
+    --genes 18S \
+    --taxa 6993,40674
+
+# Mix taxonomic groups and TaxIDs
+./master_pipeline.sh \
+    --email your@email.com \
+    --genes rRNA \
+    --taxa mammals,6993,Orthoptera
+```
+
+**Step-by-step Execution:**
+```bash
+# Only collect references
+./master_pipeline.sh \
+    --email your@email.com \
+    --genes 18S \
+    --taxa mammals \
+    --references-only
+
+# Only download assemblies
+./master_pipeline.sh \
+    --email your@email.com \
+    --input assemblies.txt \
+    --assemblies-only
+
+# Only extract genes (requires existing references and assemblies)
+./master_pipeline.sh \
+    --email your@email.com \
+    --extract-only
+```
+
+## Available Taxonomic Groups
+
+- **mammals** - Mammalia (40,674 species)
+- **birds** - Aves  
+- **reptiles** - Reptilia
+- **amphibians** - Amphibia
+- **fish** - Actinopterygii (ray-finned fishes)
+- **arthropods** - Arthropoda
+- **insects** - Insecta
+- **nematodes** - Nematoda
+- **plants** - Viridiplantae
+- **fungi** - Fungi
+- **bacteria** - Bacteria
+- **archaea** - Archaea
+- **vertebrates** - Vertebrata
+- **primates** - Primates
+- **rodents** - Rodentia
+
+View complete list:
+```bash
+./master_pipeline.sh --list-taxa
+```
+
+## Output Structure
+
+```
+blast_pipeline/
+├── assemblies/           # Downloaded genome assemblies
+├── references/           # Reference gene sequences
+│   ├── combined/        # Combined references per gene
+│   └── individual files # Species-specific references
+├── results/             # Extracted gene sequences
+│   └── GENE_NAME/       # Per-gene results
+│       ├── individual/  # Per-assembly extractions
+│       └── all_GENE_extracted.fasta  # Combined results
+└── logs/               # Execution logs
+    ├── pipeline_summary.txt
+    └── detailed logs
+```
+
+## File Naming Convention
+
+**Assemblies:**
+- `Species_name_tag_GCA123456.1.fasta`
+
+**Extracted Genes:**
+- `Species_name_GCA123456.1_GENE.fasta`
+
+**FASTA Headers:**
+- `>Species_name_GCA123456.1_GENE`
+
+## Quality Control
+
+**Reference Collection:**
+- Prioritizes RefSeq over GenBank sequences
+- Filters by sequence length (default: 100-50,000 bp)
+- Excludes partial, predicted, and low-quality sequences
+- Limits sequences per species (default: 3)
+
+**Gene Extraction:**
+- Minimum identity threshold: 70%
+- Minimum query coverage: 70%
+- Minimum sequence length: 50 bp
+- Automatic reverse complement handling
+
+**Assembly Selection:**
+- Prioritizes RefSeq over GenBank
+- Prefers Complete Genome > Chromosome > Scaffold
+- Quality scoring based on N50 values
+- Size limits (default: 4GB maximum)
+
+## Examples
+
+### Example 1: 18S rRNA from Multiple Taxa
+```bash
+# Collect 18S references from vertebrates and extract from insect assemblies
+./master_pipeline.sh \
+    --email user@example.com \
+    --genes 18S \
+    --taxa vertebrates,insects \
+    --input insect_assemblies.txt
+```
+
+### Example 2: Custom Gene References
+```bash
+# Use manually curated gene references
+echo -e "MT536114.1\nKM853220.1\nAF423791.1" > my_refs.txt
+
+./master_pipeline.sh \
+    --email user@example.com \
+    --genes my_refs.txt \
+    --input target_assemblies.txt
+```
+
+### Example 3: Multiple Genes
+```bash
+# Extract multiple circadian rhythm genes
+./master_pipeline.sh \
+    --email user@example.com \
+    --genes CLOCK,ARNTL,PER1,PER2 \
+    --taxa mammals,birds \
+    --input vertebrate_assemblies.txt
+```
+
+## Component Scripts
+
+**Individual scripts can be used standalone:**
+
+```bash
+# Collect taxonomic references
+python3 collect_gene_by_taxon.py \
+    --gene 18S \
+    --taxa mammals \
+    --email user@example.com
+
+# Download assemblies
+python3 datasets_assembly_download.py \
+    --input assemblies.txt \
+    --output ./assemblies \
+    --email user@example.com
+
+# Download from accession list
+python3 accession_reference_downloader.py \
+    --accessions refs.txt \
+    --gene 18S \
+    --email user@example.com
+
+# Extract genes
+./extract_genes.sh \
+    references.fasta \
+    ./assemblies/ \
+    ./results/ \
+    18S \
+    user@example.com
+```
+
+## Troubleshooting
+
+**Common Issues:**
+
+1. **BLAST tools not found**
+   ```bash
+   conda install -c bioconda blast
+   ```
+
+2. **Python import errors**
+   ```bash
+   pip install biopython requests
+   ```
+
+3. **No sequences extracted**
+   - Check reference quality
+   - Verify assembly integrity
+   - Review logs in `logs/` directory
+
+4. **NCBI API errors**
+   - Ensure valid email address
+   - Check internet connection
+   - Review rate limiting in logs
+
+**Log Files:**
+Always check relevant logs for detailed error information:
+- `logs/pipeline_summary.txt` - Overall results
+- `logs/GENE_extraction.log` - Gene-specific extraction
+- `logs/assembly_download.log` - Assembly download status
+- `logs/reference_collection.log` - Reference collection status
+
+## Performance Notes
+
+- Assembly downloads: ~1-5 minutes per genome
+- Reference collection: ~30 seconds per gene per taxonomic group
+- Gene extraction: ~1-2 minutes per assembly per gene (depends on size)
+- Memory usage: Primarily limited by BLAST database size
+
+## Citation
+
+If you use this pipeline in your research, please cite the relevant databases:
+
+- NCBI Nucleotide Database
+- NCBI Assembly Database
+- BLAST+ Tools
+- NCBI Datasets
+
+## License
+
+This pipeline is provided for research purposes. Please respect NCBI usage policies and rate limits.
+
+## Contributing
+
+Report issues and suggestions through the project repository. Contributions welcome for:
+- Additional taxonomic groups
+- New gene extraction methods
+- Performance optimizations
+- Documentation improvements
