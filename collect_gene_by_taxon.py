@@ -3,6 +3,7 @@
 import argparse
 import os
 import time
+import re
 from Bio import Entrez, SeqIO
 from collections import defaultdict
 
@@ -96,6 +97,32 @@ class TaxonomicGeneCollector:
     def log(self, message):
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
         print(f"[{timestamp}] {message}")
+
+    def clean_species_name(self, species_name):
+        """Clean species name for filename/header usage"""
+        if not species_name:
+            return "Unknown_species"
+        
+        # Remove common prefixes and clean
+        cleaned = species_name.replace("PREDICTED: ", "")
+        cleaned = re.sub(r'\[.*?\]', '', cleaned)  # Remove [brackets]
+        cleaned = re.sub(r'\(.*?\)', '', cleaned)  # Remove (parentheses)
+        cleaned = cleaned.strip()
+        
+        # Extract genus + species (first two words)
+        words = cleaned.split()
+        if len(words) >= 2:
+            genus_species = f"{words[0]}_{words[1]}"
+        elif len(words) == 1:
+            genus_species = words[0]
+        else:
+            genus_species = "Unknown_species"
+        
+        # Clean special characters
+        genus_species = re.sub(r'[^\w\-_]', '_', genus_species)
+        genus_species = re.sub(r'_+', '_', genus_species)
+        
+        return genus_species
 
     def list_taxonomic_groups(self):
         """List available taxonomic groups"""
@@ -340,9 +367,9 @@ class TaxonomicGeneCollector:
                     record = SeqIO.read(handle, "fasta")
                     handle.close()
 
-                    # Create clean header
-                    clean_organism = organism.replace(" ", "_")
-                    record.id = f"{clean_organism}_{accession}"
+                    # Create enhanced header with species name
+                    clean_organism = self.clean_species_name(organism)
+                    record.id = f"{clean_organism}_{accession}_{gene_name}"
                     record.description = f"{gene_name} from {organism} ({accession})"
 
                     SeqIO.write(record, outf, "fasta")
@@ -470,7 +497,7 @@ def main():
     if total > 0:
         print(f"\n🎯 Success! Use the generated files as references for BLAST searches.")
     else:
-        print(f"\n😞 No sequences collected. Try different taxonomic groups or gene names.")
+        print(f"\nNo sequences collected. Try different taxonomic groups or gene names.")
 
 
 if __name__ == "__main__":
