@@ -64,6 +64,71 @@ show_help() {
     echo "  $0 --email user@example.com --genes 18S --taxa 6993,Orthoptera"
 }
 
+
+get_gene_name_interactively() {
+    local gene_input="$1"
+    local suggested_name=""
+
+    # Try to suggest a name based on filename
+    if [ -f "$gene_input" ]; then
+        local basename_file=$(basename "$gene_input" | sed 's/\.[^.]*$//')
+
+        # Look for common gene patterns
+        if [[ "$basename_file" =~ ([0-9]+[sS]) ]]; then
+            suggested_name="${BASH_REMATCH[1]}"
+        elif [[ "$basename_file" =~ (28[sS]|18[sS]|16[sS]|ITS|COI|rbcL|matK|CLOCK|PER1|PER2|CRY1|CRY2|ARNTL|NR1D1|RORA) ]]; then
+            suggested_name="${BASH_REMATCH[1]}"
+        elif [[ "$basename_file" =~ [a-zA-Z]+$ ]]; then
+            suggested_name=$(echo "$basename_file" | sed 's/.*[_-]//')
+        else
+            suggested_name="$basename_file"
+        fi
+
+        # Clean up suggestion
+        suggested_name=$(echo "$suggested_name" | tr '[:lower:]' '[:upper:]')
+
+        # FIXED: Use simple echo instead of print_status
+        echo "📁 Processing file: $gene_input" >&2
+        echo "💡 Suggested gene name: $suggested_name" >&2
+        echo "" >&2
+
+        while true; do
+            if [ -n "$suggested_name" ]; then
+                read -p "🧬 Enter gene name (or press Enter for '$suggested_name'): " user_input
+                if [ -z "$user_input" ]; then
+                    # FIXED: Return ONLY the gene name, no extra text
+                    echo "$suggested_name"
+                    return 0
+                else
+                    # FIXED: Return ONLY the user input, clean it
+                    clean_input=$(echo "$user_input" | tr -d '[:space:]' | tr -d '[:cntrl:]')
+                    echo "$clean_input"
+                    return 0
+                fi
+            else
+                read -p "🧬 Enter gene name for $gene_input: " user_input
+                if [ -n "$user_input" ]; then
+                    clean_input=$(echo "$user_input" | tr -d '[:space:]' | tr -d '[:cntrl:]')
+                    echo "$clean_input"
+                    return 0
+                else
+                    echo "Gene name cannot be empty. Please enter a valid gene name." >&2
+                fi
+            fi
+        done
+    else
+        # For accession lists or direct gene names
+        read -p "🧬 Enter gene name for '$gene_input': " user_input
+        if [ -n "$user_input" ]; then
+            clean_input=$(echo "$user_input" | tr -d '[:space:]' | tr -d '[:cntrl:]')
+            echo "$clean_input"
+        else
+            echo "custom_gene"  # Fallback
+        fi
+    fi
+}
+
+
 list_taxonomic_groups() {
     print_status "Available taxonomic groups:"
     python3 collect_gene_by_taxon.py --list_taxa --email "$EMAIL" 2>/dev/null || {
@@ -114,22 +179,28 @@ setup_directories() {
 }
 
 collect_reference_genes() {
-    print_status "Collecting reference genes..."
+    echo "🎯 Gene name detection: Interactive mode"
+    echo ""
 
     local total_collected=0
 
     for gene in "${GENES[@]}"; do
+        local gene_name
+
         # Check if gene is a file path
         if [ -f "$gene" ]; then
-            print_status "Processing accession file: $gene"
+            print_status "📋 Processing accession file: $gene"
 
-            # Extract gene name from filename (remove path and extension)
-            local gene_name
-            gene_name=$(basename "$gene" | sed 's/\.[^.]*$//' | sed 's/.*_//')
-            if [[ "$gene_name" == *"accession"* ]] || [[ "$gene_name" == *"ref"* ]]; then
-                gene_name="unknown"  # Default fallback
-            fi
+            # FIXED: Capture gene name cleanly
+            gene_name=$(get_gene_name_interactively "$gene")
 
+            # FIXED: Clean any remaining control characters
+            gene_name=$(echo "$gene_name" | tr -d '[:cntrl:]' | tr -d '\033' | sed 's/\[[0-9;]*[mGK]//g')
+
+            print_success "Using gene name: $gene_name"
+            echo ""
+
+            # FIXED: Pass clean gene name to Python script
             python3 accession_reference_downloader.py \
                 --accessions "$gene" \
                 --gene "$gene_name" \
@@ -151,49 +222,66 @@ collect_reference_genes() {
                 print_error "Failed to collect accession references from $gene"
             fi
 
-        # Check if gene looks like accession list (contains accession patterns or spaces)
+        # Rest of function stays same but with similar fixes...
         elif [[ "$gene" =~ ^[A-Z]+[0-9]+\.[0-9]+ ]] || [[ "$gene" == *" "* ]]; then
-            print_status "Processing accession list for custom gene"
+            print_status "📋 Processing accession list for custom gene"
 
-            # Treat as accession list
+            gene_name=$(get_gene_name_interactively "$gene")
+            gene_name=$(echo "$gene_name" | tr -d '[:cntrl:]' | tr -d '\033' | sed 's/\[[0-9;]*[mGK]//g')
+
+            print_success "Using gene name: $gene_name"
+            echo ""
+
             python3 accession_reference_downloader.py \
                 --accessions "$gene" \
-                --gene "custom_gene" \
+                --gene "$gene_name" \
                 --email "$EMAIL" \
                 --output "./references" \
-                > "logs/custom_accession_collection.log" 2>&1
+                > "logs/${gene_name}_accession_collection.log" 2>&1
 
             if [ $? -eq 0 ]; then
-                local ref_file="references/custom_gene_accession_references.fasta"
+                local ref_file="references/${gene_name}_accession_references.fasta"
                 if [ -f "$ref_file" ]; then
                     local count
                     count=$(grep -c ">" "$ref_file" 2>/dev/null || echo 0)
-                    print_success "Downloaded $count accession references"
+                    print_success "Downloaded $count accession references for $gene_name"
                     total_collected=$((total_collected + count))
                 else
-                    print_warning "No accession references collected"
+                    print_warning "No accession references collected for $gene_name"
                 fi
             else
                 print_error "Failed to collect accession references"
             fi
         else
-            # Regular gene name - collect from taxonomic groups
-            print_status "Collecting $gene from groups: ${TAXONOMIC_GROUPS[*]}"
+            # Regular gene name case
+            print_status "📋 Processing gene name: $gene"
+            read -p "🧬 Confirm gene name '$gene' or enter new name: " user_input
+
+            if [ -n "$user_input" ]; then
+                gene_name=$(echo "$user_input" | tr -d '[:cntrl:]' | tr -d '\033' | sed 's/\[[0-9;]*[mGK]//g')
+            else
+                gene_name="$gene"
+            fi
+
+            print_success "Using gene name: $gene_name"
+            echo ""
+
+            # Continue with taxonomic collection...
+            print_status "Collecting $gene_name from groups: ${TAXONOMIC_GROUPS[*]}"
 
             python3 collect_gene_by_taxon.py \
-                --gene "$gene" \
+                --gene "$gene_name" \
                 --taxa "${TAXONOMIC_GROUPS[@]}" \
                 --email "$EMAIL" \
                 --output "./references" \
                 --max_per_species 3 \
                 --min_length 200 \
-                > "logs/${gene}_reference_collection.log" 2>&1
+                > "logs/${gene_name}_reference_collection.log" 2>&1
 
             if [ $? -eq 0 ]; then
-                # Count collected sequences
                 local count=0
                 for taxa in "${TAXONOMIC_GROUPS[@]}"; do
-                    local ref_file="references/${gene}_${taxa}_references.fasta"
+                    local ref_file="references/${gene_name}_${taxa}_references.fasta"
                     if [ -f "$ref_file" ]; then
                         local gene_count
                         gene_count=$(grep -c ">" "$ref_file" 2>/dev/null || echo 0)
@@ -202,20 +290,21 @@ collect_reference_genes() {
                 done
 
                 if [ "$count" -gt 0 ]; then
-                    print_success "Collected $count $gene references"
+                    print_success "Collected $count $gene_name references"
                     total_collected=$((total_collected + count))
 
-                    # Combine all taxonomic groups for this gene
-                    local combined_file="references/${gene}_all_references.fasta"
-                    cat references/${gene}_*_references.fasta > "$combined_file" 2>/dev/null
+                    local combined_file="references/${gene_name}_all_references.fasta"
+                    cat references/${gene_name}_*_references.fasta > "$combined_file" 2>/dev/null
                     print_success "Combined references: $combined_file"
                 else
-                    print_warning "No $gene references collected"
+                    print_warning "No $gene_name references collected"
                 fi
             else
-                print_error "Failed to collect $gene references"
+                print_error "Failed to collect $gene_name references"
             fi
         fi
+
+        echo "---"
     done
 
     print_success "Total reference sequences collected: $total_collected"
@@ -258,21 +347,33 @@ extract_genes() {
     local total_extractions=0
 
     for gene in "${GENES[@]}"; do
-        # Determine reference file based on gene type
         local ref_file=""
         local gene_name=""
 
         if [ -f "$gene" ]; then
-            # File path case
-            gene_name=$(basename "$gene" | sed 's/\.[^.]*$//' | sed 's/.*_//')
-            if [[ "$gene_name" == *"accession"* ]] || [[ "$gene_name" == *"ref"* ]]; then
-                gene_name="18S"  # Default fallback
+            # For file inputs, we need to find the actual gene name used
+            # Look for *_accession_references.fasta files
+            local possible_files=(references/*_accession_references.fasta)
+            if [ ${#possible_files[@]} -eq 1 ] && [ -f "${possible_files[0]}" ]; then
+                ref_file="${possible_files[0]}"
+                gene_name=$(basename "$ref_file" | sed 's/_accession_references.fasta$//')
+            else
+                # Multiple files or not found - ask user
+                echo "Available reference files:"
+                ls -la references/*_accession_references.fasta 2>/dev/null || echo "No accession reference files found"
+                read -p "Enter gene name for extraction: " gene_name
+                ref_file="references/${gene_name}_accession_references.fasta"
             fi
-            ref_file="references/${gene_name}_accession_references.fasta"
         elif [[ "$gene" =~ ^[A-Z]+[0-9]+\.[0-9]+ ]] || [[ "$gene" == *" "* ]]; then
-            # Accession list case
-            ref_file="references/custom_gene_accession_references.fasta"
-            gene_name="custom_gene"
+            # Similar logic for accession lists
+            local possible_files=(references/*_accession_references.fasta)
+            if [ ${#possible_files[@]} -eq 1 ] && [ -f "${possible_files[0]}" ]; then
+                ref_file="${possible_files[0]}"
+                gene_name=$(basename "$ref_file" | sed 's/_accession_references.fasta$//')
+            else
+                read -p "Enter gene name for extraction: " gene_name
+                ref_file="references/${gene_name}_accession_references.fasta"
+            fi
         else
             # Regular gene case
             ref_file="references/${gene}_all_references.fasta"
@@ -303,13 +404,12 @@ extract_genes() {
                 print_error "Failed to extract $gene_name"
             fi
         else
-            print_warning "No reference file found for $gene, skipping extraction"
+            print_warning "No reference file found for $gene_name, skipping extraction"
         fi
     done
 
     print_success "Total gene sequences extracted: $total_extractions"
 }
-
 generate_summary() {
     print_status "Generating pipeline summary..."
 
@@ -320,16 +420,32 @@ generate_summary() {
         echo "=================================="
         echo "Run date: $(date)"
         echo "Email: $EMAIL"
-        echo "Taxonomic groups: ${TAXONOMIC_GROUPS[*]}"
+
+        # FIXED: Only show taxonomic groups if actually used
+        local used_taxonomic_collection=false
+        for gene in "${GENES[@]}"; do
+            # Check if this gene used taxonomic collection (not file-based)
+            if [ ! -f "$gene" ] && [[ ! "$gene" =~ ^[A-Z]+[0-9]+\.[0-9]+ ]] && [[ "$gene" != *" "* ]]; then
+                used_taxonomic_collection=true
+                break
+            fi
+        done
+
+        if [ "$used_taxonomic_collection" = true ]; then
+            echo "Taxonomic groups: ${TAXONOMIC_GROUPS[*]}"
+        else
+            echo "Input method: Custom reference files/accessions"
+        fi
+
         echo "Genes: ${GENES[*]}"
         echo ""
 
         echo "ASSEMBLIES:"
         local assembly_count
-        assembly_count=$(find assemblies -name "*.fasta" | wc -l 2>/dev/null || echo 0)
+        assembly_count=$(find assemblies -name "*.fasta" 2>/dev/null | wc -l || echo 0)
         echo "Total downloaded: $assembly_count"
         if [ "$assembly_count" -gt 0 ]; then
-            find assemblies -name "*.fasta" -exec ls -lh {} \; | head -5 | awk '{print "  " $9 " (" $5 ")"}'
+            find assemblies -name "*.fasta" -exec ls -lh {} \; 2>/dev/null | head -5 | awk '{print "  " $9 " (" $5 ")"}'
             if [ "$assembly_count" -gt 5 ]; then
                 echo "  ... and $((assembly_count - 5)) more"
             fi
@@ -337,34 +453,44 @@ generate_summary() {
         echo ""
 
         echo "REFERENCE GENES:"
+        # FIXED: Accurate reference counting
         for gene in "${GENES[@]}"; do
             local total=0
             local gene_display=""
+            local actual_gene_name=""
 
             if [ -f "$gene" ]; then
-                # File path case - extract gene name
-                local gene_name
-                gene_name=$(basename "$gene" | sed 's/\.[^.]*$//' | sed 's/.*_//')
-                if [[ "$gene_name" == *"accession"* ]] || [[ "$gene_name" == *"ref"* ]]; then
-                    gene_name="18S"
+                # File path case - find the actual gene name used
+                actual_gene_name=$(find references -name "*_accession_references.fasta" -exec basename {} \; | sed 's/_accession_references.fasta$//' | tail -1)
+
+                if [ -z "$actual_gene_name" ]; then
+                    # Fallback: try to extract from filename
+                    actual_gene_name=$(basename "$gene" | sed 's/\.[^.]*$//')
                 fi
-                gene_display="$gene (extracted as $gene_name)"
+
+                gene_display="$gene (extracted as $actual_gene_name)"
 
                 # Count from accession references file
-                local accession_ref_file="references/${gene_name}_accession_references.fasta"
+                local accession_ref_file="references/${actual_gene_name}_accession_references.fasta"
                 if [ -f "$accession_ref_file" ]; then
                     total=$(grep -c ">" "$accession_ref_file" 2>/dev/null || echo 0)
                 fi
+
             elif [[ "$gene" =~ ^[A-Z]+[0-9]+\.[0-9]+ ]] || [[ "$gene" == *" "* ]]; then
                 # Accession list case
                 gene_display="$gene (custom accessions)"
-                local custom_ref_file="references/custom_gene_accession_references.fasta"
+
+                # Find any accession references file
+                local custom_ref_file=$(find references -name "*_accession_references.fasta" | head -1)
                 if [ -f "$custom_ref_file" ]; then
                     total=$(grep -c ">" "$custom_ref_file" 2>/dev/null || echo 0)
                 fi
+
             else
-                # Regular gene case
-                gene_display="$gene"
+                # Regular gene case - taxonomic collection
+                gene_display="$gene (taxonomic collection)"
+                actual_gene_name="$gene"
+
                 for taxa in "${TAXONOMIC_GROUPS[@]}"; do
                     local ref_file="references/${gene}_${taxa}_references.fasta"
                     if [ -f "$ref_file" ]; then
@@ -373,6 +499,12 @@ generate_summary() {
                         total=$((total + count))
                     fi
                 done
+
+                # Also check combined file
+                local combined_file="references/${gene}_all_references.fasta"
+                if [ -f "$combined_file" ]; then
+                    total=$(grep -c ">" "$combined_file" 2>/dev/null || echo 0)
+                fi
             fi
 
             echo "$gene_display: $total reference sequences"
@@ -380,40 +512,93 @@ generate_summary() {
         echo ""
 
         echo "GENE EXTRACTION RESULTS:"
+        # FIXED: Accurate extraction counting
         local total_extracted=0
+
         for gene in "${GENES[@]}"; do
-            local gene_name=""
             local gene_display=""
+            local actual_gene_name=""
+            local extracted_count=0
 
             if [ -f "$gene" ]; then
-                # File path case
-                gene_name=$(basename "$gene" | sed 's/\.[^.]*$//' | sed 's/.*_//')
-                if [[ "$gene_name" == *"accession"* ]] || [[ "$gene_name" == *"ref"* ]]; then
-                    gene_name="18S"
+                # File path case - find actual gene name used
+                actual_gene_name=$(find references -name "*_accession_references.fasta" -exec basename {} \; | sed 's/_accession_references.fasta$//' | tail -1)
+
+                if [ -z "$actual_gene_name" ]; then
+                    actual_gene_name=$(basename "$gene" | sed 's/\.[^.]*$//')
                 fi
-                gene_display="$gene (extracted as $gene_name)"
+
+                gene_display="$gene (extracted as $actual_gene_name)"
+
             elif [[ "$gene" =~ ^[A-Z]+[0-9]+\.[0-9]+ ]] || [[ "$gene" == *" "* ]]; then
-                # Accession list case
-                gene_name="custom_gene"
-                gene_display="$gene (custom accessions)"
+                # Accession list case - find the gene name that was used
+                actual_gene_name=$(find references -name "*_accession_references.fasta" -exec basename {} \; | sed 's/_accession_references.fasta$//' | tail -1)
+
+                if [ -z "$actual_gene_name" ]; then
+                    actual_gene_name="custom_gene"
+                fi
+
+                gene_display="$gene (extracted as $actual_gene_name)"
+
             else
                 # Regular gene case
-                gene_name="$gene"
+                actual_gene_name="$gene"
                 gene_display="$gene"
             fi
 
-            local extracted_file="results/$gene_name/all_${gene_name}_extracted.fasta"
+            # Count extracted sequences
+            local extracted_file="results/$actual_gene_name/all_${actual_gene_name}_extracted.fasta"
             if [ -f "$extracted_file" ]; then
-                local count
-                count=$(grep -c ">" "$extracted_file" 2>/dev/null || echo 0)
-                echo "$gene_display: $count sequences extracted"
-                total_extracted=$((total_extracted + count))
+                extracted_count=$(grep -c ">" "$extracted_file" 2>/dev/null || echo 0)
             else
-                echo "$gene_display: 0 sequences extracted"
+                # Try individual files in results directory
+                if [ -d "results/$actual_gene_name" ]; then
+                    extracted_count=$(find "results/$actual_gene_name" -name "*_${actual_gene_name}.fasta" -exec grep -c ">" {} \; 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
+                fi
             fi
+
+            echo "$gene_display: $extracted_count sequences extracted"
+            total_extracted=$((total_extracted + extracted_count))
         done
+
         echo ""
         echo "TOTAL EXTRACTED: $total_extracted sequences"
+
+        # FIXED: Add extraction quality summary if available
+        echo ""
+        echo "EXTRACTION QUALITY:"
+        for gene in "${GENES[@]}"; do
+            local actual_gene_name=""
+
+            # Determine actual gene name used
+            if [ -f "$gene" ]; then
+                actual_gene_name=$(find references -name "*_accession_references.fasta" -exec basename {} \; | sed 's/_accession_references.fasta$//' | tail -1)
+                if [ -z "$actual_gene_name" ]; then
+                    actual_gene_name=$(basename "$gene" | sed 's/\.[^.]*$//')
+                fi
+            elif [[ "$gene" =~ ^[A-Z]+[0-9]+\.[0-9]+ ]] || [[ "$gene" == *" "* ]]; then
+                actual_gene_name=$(find references -name "*_accession_references.fasta" -exec basename {} \; | sed 's/_accession_references.fasta$//' | tail -1)
+                if [ -z "$actual_gene_name" ]; then
+                    actual_gene_name="custom_gene"
+                fi
+            else
+                actual_gene_name="$gene"
+            fi
+
+            # Check extraction log for quality metrics
+            local log_file="logs/${actual_gene_name}_extraction.log"
+            if [ -f "$log_file" ]; then
+                local success_entries
+                success_entries=$(grep "Success" "$log_file" | wc -l 2>/dev/null || echo 0)
+                if [ "$success_entries" -gt 0 ]; then
+                    echo "$actual_gene_name:"
+                    grep "Success" "$log_file" | head -3 | sed 's/^/  /'
+                    if [ "$success_entries" -gt 3 ]; then
+                        echo "  ... and $((success_entries - 3)) more successful extractions"
+                    fi
+                fi
+            fi
+        done
 
     } > "$summary_file"
 
@@ -421,8 +606,9 @@ generate_summary() {
     print_success "Summary saved: $summary_file"
 }
 
+
 main() {
-    # Parse arguments
+    # Parse arguments FIRST - before any validation
     while [[ $# -gt 0 ]]; do
         case $1 in
             --email)
@@ -446,8 +632,10 @@ main() {
                 shift 2
                 ;;
             --list-taxa)
-                get_email() { EMAIL="dummy@example.com"; }
-                get_email
+                # Set dummy email for list-taxa command
+                if [ -z "$EMAIL" ]; then
+                    EMAIL="dummy@example.com"
+                fi
                 list_taxonomic_groups
                 exit 0
                 ;;
@@ -475,59 +663,82 @@ main() {
         esac
     done
 
-    # Validate email
+    # NOW validate email - AFTER parsing
     if [ -z "$EMAIL" ]; then
         print_error "Email is required for NCBI API access"
         echo "Use: $0 --email your@email.com"
         exit 1
     fi
 
+    # Show startup messages
     print_status "🧬 PHYLOGENETIC PIPELINE v2.0 STARTING"
     print_status "Genes: ${GENES[*]}"
-    print_status "Taxonomic groups: ${TAXONOMIC_GROUPS[*]}"
 
+    # FIXED: Check gene types before showing taxonomic groups
+    local uses_taxonomic_collection=false
+    for gene in "${GENES[@]}"; do
+        # Check if this gene uses taxonomic collection (not file-based)
+        if [ ! -f "$gene" ] && [[ ! "$gene" =~ ^[A-Z]+[0-9]+\.[0-9]+ ]] && [[ "$gene" != *" "* ]]; then
+            uses_taxonomic_collection=true
+            break
+        fi
+    done
+
+    if [ "$uses_taxonomic_collection" = true ]; then
+        print_status "Taxonomic groups: ${TAXONOMIC_GROUPS[*]}"
+    else
+        print_status "Input method: Custom reference files/accessions"
+    fi
+
+    # Check dependencies and setup
     check_dependencies
     setup_directories
 
+    # Log start time
     local start_time
     start_time=$(date)
     echo "Started at: $start_time" > logs/pipeline.log
 
-    # Run pipeline steps
+    # Run pipeline steps based on options
     if [ "$ASSEMBLIES_ONLY" == "1" ]; then
+        print_status "Running assemblies-only mode"
         download_assemblies
 
     elif [ "$REFERENCES_ONLY" == "1" ]; then
+        print_status "Running references-only mode"
         collect_reference_genes
 
     elif [ "$EXTRACT_ONLY" == "1" ]; then
+        print_status "Running extract-only mode"
         extract_genes
         generate_summary
 
     else
         # Full pipeline
+        print_status "Running full pipeline"
         collect_reference_genes
 
-        if [ -n "$INPUT_FILE" ]; then
+        if [ -n "$INPUT_FILE" ] && [ -f "$INPUT_FILE" ]; then
             download_assemblies
             extract_genes
         else
-            print_warning "No input file provided, skipping assembly download and extraction"
+            print_warning "No input file provided or file not found, skipping assembly download and extraction"
             print_warning "Use --input accessions.txt or --input species_list.tsv"
         fi
 
         generate_summary
     fi
 
+    # Log completion time
     local end_time
     end_time=$(date)
     echo "Completed at: $end_time" >> logs/pipeline.log
 
+    # Final success message
     print_success "🎉 Pipeline completed!"
     echo ""
     print_status "📂 Check results in: ./results/"
     print_status "📊 Summary: ./logs/pipeline_summary.txt"
 }
 
-# Run main function
 main "$@"
